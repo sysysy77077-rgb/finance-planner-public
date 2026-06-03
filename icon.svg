@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="财务规划">
+  <rect width="512" height="512" rx="112" fill="#0f766e"/>
+  <path fill="#fff7ed" d="M128 156c0-22 18-40 40-40h176c22 0 40 18 40 40v200c0 22-18 40-40 40H168c-22 0-40-18-40-40V156Z"/>
+  <path fill="#0f766e" d="M178 178h156v34H178v-34Zm0 70h156v30H178v-30Zm0 66h70v34h-70v-34Zm104 0h52v34h-52v-34Z"/>
+  <circle cx="364" cy="148" r="54" fill="#f59e0b"/>
+  <path fill="#fff7ed" d="M350 119h28v58h-28v-58Zm-18 18h64v23h-64v-23Z"/>
+</svg>

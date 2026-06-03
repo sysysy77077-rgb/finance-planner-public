@@ -1,0 +1,18 @@
+{
+  "name": "财务规划工具",
+  "short_name": "财务规划",
+  "description": "个人收入、支出、账单和存款目标规划工具。",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f7f2",
+  "theme_color": "#0f766e",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>财务规划工具</title>
+    <meta name="theme-color" content="#0f766e" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="财务规划" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">¥</div>
+          <div>
+            <h1>财务规划</h1>
+            <p>发薪月 · 年度目标 · 愿望基金</p>
+          </div>
+        </div>
+        <nav class="nav" aria-label="主导航">
+          <button class="nav-item active" data-section="dashboard" type="button">总览</button>
+          <button class="nav-item" data-section="goals" type="button">计划目标</button>
+          <button class="nav-item" data-section="bills" type="button">账单</button>
+          <button class="nav-item" data-section="wishes" type="button">想买清单</button>
+          <button class="nav-item" data-section="settings" type="button">参数</button>
+        </nav>
+        <div class="side-panel">
+          <span class="label">本机保存</span>
+          <p>数据会存在当前浏览器。记得偶尔导出一份备份。</p>
+          <div class="side-actions">
+            <button class="ghost-button" id="exportData" type="button">导出</button>
+            <label class="ghost-button file-button">
+              导入
+              <input id="importData" type="file" accept="application/json" />
+            </label>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="cycleLabel">发薪周期</p>
+            <h2>把想要的生活放进计划里</h2>
+          </div>
+          <div class="scenario-switch" role="group" aria-label="绩效情景">
+            <button class="chip" data-scenario="conservative" type="button">保守</button>
+            <button class="chip active" data-scenario="normal" type="button">正常</button>
+            <button class="chip" data-scenario="optimistic" type="button">乐观</button>
+          </div>
+        </header>
+
+        <section class="section-panel active" id="dashboard">
+          <div class="metric-grid">
+            <article class="metric-card primary">
+              <span>本发薪月可花</span>
+              <strong id="spendableAmount">¥0</strong>
+              <p id="spendableHint">扣除生活必需、账单和下月冻结后的生活可支配余额。</p>
+            </article>
+            <article class="metric-card">
+              <span>25岁15万进度</span>
+              <strong id="targetProgress">0%</strong>
+              <div class="progress"><span id="targetBar"></span></div>
+            </article>
+            <article class="metric-card">
+              <span>年度预计结余</span>
+              <strong id="annualSurplus">¥0</strong>
+              <p id="annualHint">包含工资、绩效、多薪和年度事件。</p>
+            </article>
+            <article class="metric-card">
+              <span>下月账单池</span>
+              <strong id="frozenBills">¥0</strong>
+              <p>先用后付会先冻结，不让下个月突然紧张。</p>
+            </article>
+          </div>
+
+          <article class="panel salary-panel">
+            <div class="panel-head">
+              <div>
+                <h3>当月实发工资</h3>
+                <p>输入这个发薪周期实际到账的钱，下面的预算拆解会优先按实发金额计算。</p>
+              </div>
+              <span class="pill" id="incomeSourceHint">预测收入</span>
+            </div>
+            <form class="salary-form" id="actualSalaryForm">
+              <label>实发到手工资<input name="actualNetIncome" type="number" min="0" step="0.01" placeholder="例如 8320" /></label>
+              <label>五险个人缴纳<input name="actualSocialContribution" type="number" min="0" step="0.01" placeholder="可不填，用预估" /></label>
+              <label>公积金个人缴纳<input name="actualFundContribution" type="number" min="0" step="0.01" placeholder="可不填，用预估" /></label>
+              <label>个税<input name="actualTax" type="number" min="0" step="0.01" placeholder="可不填" /></label>
+              <button class="ghost-button" id="clearActualSalary" type="button">清空本月实发</button>
+            </form>
+            <div class="payroll-strip">
+              <div>
+                <span>五险一金合计</span>
+                <strong id="contributionAmount">¥0</strong>
+              </div>
+              <div>
+                <span>五险个人</span>
+                <strong id="socialContributionAmount">¥0</strong>
+              </div>
+              <div>
+                <span>公积金个人</span>
+                <strong id="fundContributionAmount">¥0</strong>
+              </div>
+              <div>
+                <span>个税</span>
+                <strong id="taxAmount">¥0</strong>
+              </div>
+            </div>
+            <p class="salary-note" id="contributionHint">未填写实际缴纳金额时，按参数页的缴费基数和比例预估。</p>
+          </article>
+
+          <article class="panel salary-panel">
+            <div class="panel-head">
+              <div>
+                <h3>15万目标倒推</h3>
+                <p>每月填一次这个月实际攒下的钱，系统会累计并倒推之后每月最低要攒多少。</p>
+              </div>
+              <span class="pill">目标 ¥150,000</span>
+            </div>
+            <form class="salary-form savings-form" id="actualSavingsForm">
+              <label>本月实际攒下<input name="actualSavings" type="number" min="0" step="100" placeholder="例如 1500" /></label>
+              <div class="payroll-strip compact">
+                <div>
+                  <span>累计已攒</span>
+                  <strong id="actualSavingsAmount">¥0</strong>
+                </div>
+                <div>
+                  <span>还差</span>
+                  <strong id="targetGapAmount">¥0</strong>
+                </div>
+                <div>
+                  <span>每月最低</span>
+                  <strong id="requiredMonthlyAmount">¥0</strong>
+                </div>
+              </div>
+            </form>
+            <p class="salary-note" id="savingPlanHint">按剩余发薪月倒推你的最低攒钱线。</p>
+          </article>
+
+          <article class="panel chart-panel">
+            <div class="panel-head">
+              <div>
+                <h3>月度收支存款图</h3>
+                <p>按发薪月展示收入、支出、累计存款，并对照15万目标路线。</p>
+              </div>
+              <div class="chart-legend" aria-label="图例">
+                <span><i class="legend-income"></i>收入</span>
+                <span><i class="legend-expense"></i>支出</span>
+                <span><i class="legend-saving"></i>存款</span>
+                <span><i class="legend-target"></i>目标线</span>
+              </div>
+            </div>
+            <div class="bar-chart" id="monthlyBarChart" aria-label="月度收入支出存款柱状图"></div>
+          </article>
+
+          <div class="content-grid">
+            <article class="panel">
+              <div class="panel-head">
+                <div>
+                  <h3>本周期分配</h3>
+                  <p>先看生活现金流，再看目标压力。</p>
+                </div>
+              </div>
+              <div class="allocation" id="allocationList"></div>
+            </article>
+            <article class="panel">
+              <div class="panel-head">
+                <div>
+                  <h3>补充支出</h3>
+                  <p>临时开销、固定新增项、意外支出都放这里。</p>
+                </div>
+                <button class="ghost-button" id="newQuickExpense" type="button">新增</button>
+              </div>
+              <div class="notice-list" id="expenseSummary"></div>
+            </article>
+          </div>
+
+          <div class="content-grid">
+            <article class="panel wide">
+              <div class="panel-head">
+                <div>
+                  <h3>年度路线</h3>
+                  <p>按15万目标倒推每年应达到的存款线。</p>
+                </div>
+                <span class="pill" id="yearStatus">计算中</span>
+              </div>
+              <div class="route-list" id="annualRoute"></div>
+            </article>
+            <article class="panel">
+              <div class="panel-head">
+                <div>
+                  <h3>近期提醒</h3>
+                  <p>账单、生日、人情、冷静期。</p>
+                </div>
+              </div>
+              <div class="notice-list" id="noticeList"></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="section-panel" id="goals">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Plan Goals</p>
+              <h2>计划目标</h2>
+            </div>
+            <button class="primary-button" id="newGoal" type="button">新增目标</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>名称</th>
+                  <th>分类</th>
+                  <th>目标金额</th>
+                  <th>已攒</th>
+                  <th>每月预留</th>
+                  <th>目标日期</th>
+                  <th>状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="goalTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="section-panel" id="bills">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Bills</p>
+              <h2>账单和先用后付</h2>
+            </div>
+            <button class="primary-button" id="newBill" type="button">新增账单</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>名称</th>
+                  <th>金额</th>
+                  <th>到期日</th>
+                  <th>结束月份</th>
+                  <th>冻结下月</th>
+                  <th>状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="billTable"></tbody>
+            </table>
+          </div>
+          <div class="section-heading sub-heading">
+            <div>
+              <p class="eyebrow">Extra Expenses</p>
+              <h2>固定/意外支出</h2>
+            </div>
+            <button class="primary-button" id="newExpense" type="button">新增支出</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>名称</th>
+                  <th>金额</th>
+                  <th>月份</th>
+                  <th>类型</th>
+                  <th>是否每月</th>
+                  <th>状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="expenseTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="section-panel" id="wishes">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Wish List</p>
+              <h2>想买清单</h2>
+            </div>
+            <button class="primary-button" id="newWish" type="button">新增想买</button>
+          </div>
+          <div class="wish-grid" id="wishGrid"></div>
+        </section>
+
+        <section class="section-panel" id="settings">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Settings</p>
+              <h2>财务参数</h2>
+            </div>
+            <button class="ghost-button" id="resetData" type="button">恢复默认</button>
+          </div>
+          <form class="settings-grid" id="settingsForm">
+            <fieldset>
+              <legend>收入</legend>
+              <label>实习工资<input name="internSalary" type="number" min="0" step="100" /></label>
+              <label>试用期底薪<input name="probationSalary" type="number" min="0" step="100" /></label>
+              <label>转正底薪<input name="regularSalary" type="number" min="0" step="100" /></label>
+              <label>转正月份<input name="regularMonth" type="month" /></label>
+              <label>发薪日<input name="payday" type="number" min="1" max="28" /></label>
+            </fieldset>
+            <fieldset>
+              <legend>绩效和扣款</legend>
+              <label>保守绩效<input name="perfConservative" type="number" min="0" step="100" /></label>
+              <label>正常绩效<input name="perfNormal" type="number" min="0" step="100" /></label>
+              <label>乐观绩效<input name="perfOptimistic" type="number" min="0" step="100" /></label>
+              <label>社保公积金基数<input name="contributionBase" type="number" min="0" step="100" /></label>
+              <label>公积金比例<input name="fundRate" type="number" min="0" max="20" step="0.1" /></label>
+              <label>五险个人比例<input name="socialRate" type="number" min="0" max="20" step="0.1" /></label>
+            </fieldset>
+            <fieldset>
+              <legend>固定支出</legend>
+              <label>房租<input name="rent" type="number" min="0" step="10" /></label>
+              <label>水电月均<input name="utilities" type="number" min="0" step="10" /></label>
+              <label>话费<input name="phone" type="number" min="0" step="10" /></label>
+              <label>通勤<input name="commute" type="number" min="0" step="10" /></label>
+              <label>早餐<input name="breakfast" type="number" min="0" step="1" /></label>
+              <label>午餐<input name="lunch" type="number" min="0" step="1" /></label>
+              <label>晚餐<input name="dinner" type="number" min="0" step="1" /></label>
+            </fieldset>
+            <fieldset>
+              <legend>目标和快乐</legend>
+              <label>起始存款<input name="currentSavings" type="number" min="0" step="100" /></label>
+              <label>FK Money<input name="lockedBuffer" type="number" min="0" step="100" /></label>
+              <label>FK Money 目标金额<input name="bufferTarget" type="number" min="0" step="100" /></label>
+              <label>25岁底线<input name="age25Target" type="number" min="0" step="1000" /></label>
+              <label>快乐消费<input name="happyBudget" type="number" min="0" step="50" /></label>
+              <label>冷静期天数<input name="coolingDays" type="number" min="0" max="60" /></label>
+            </fieldset>
+          </form>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="editDialog">
+      <form class="dialog-form" id="dialogForm">
+        <div class="dialog-head">
+          <h3 id="dialogTitle">编辑</h3>
+          <button class="icon-button" id="closeDialog" type="button" aria-label="关闭">×</button>
+        </div>
+        <div class="dialog-body" id="dialogBody"></div>
+        <div class="dialog-actions">
+          <button class="ghost-button" id="cancelDialog" type="button">取消</button>
+          <button class="primary-button" id="saveDialog" value="default" type="submit">保存</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script>
+      if ("serviceWorker" in navigator && location.protocol !== "file:") {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("./sw.js").catch(() => {});
+        });
+      }
+    </script>
+    <script src="app.js"></script>
+  </body>
+</html>
