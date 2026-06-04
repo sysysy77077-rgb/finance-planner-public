@@ -254,9 +254,13 @@ function monthlyFoodCost() {
   return (Number(e.breakfast) + Number(e.lunch) + Number(e.dinner)) * 30;
 }
 
-function fixedMonthlyCost() {
+function fixedHeadCost() {
   const e = state.expensePlan;
-  return Number(e.rent) + Number(e.utilities) + Number(e.phone) + Number(e.commute) + monthlyFoodCost();
+  return Number(e.rent) + Number(e.utilities) + Number(e.phone) + Number(e.commute);
+}
+
+function fixedMonthlyCost() {
+  return fixedHeadCost() + monthlyFoodCost();
 }
 
 function activeBillsFor(month) {
@@ -332,7 +336,9 @@ function currentCyclePlan() {
   const cycle = cycleFor();
   const income = budgetIncomeFor(cycle.key);
   const actual = actualIncomeFor(cycle.key);
-  const fixed = fixedMonthlyCost();
+  const fixedHead = fixedHeadCost();
+  const food = monthlyFoodCost();
+  const fixed = fixedHead + food;
   const bills = activeBillsFor(cycle.key).reduce((sum, bill) => sum + Number(bill.amount || 0), 0);
   const extra = extraExpenseTotalFor(cycle.key);
   const frozen = activeBillsFor(cycle.key).filter((bill) => bill.freezeNextCycle).reduce((sum, bill) => sum + Number(bill.amount || 0), 0);
@@ -342,12 +348,15 @@ function currentCyclePlan() {
   const payroll = contributionBreakdownFor(cycle.key);
   const target = targetPlan();
   const targetPressure = isSavingPausedMonth(cycle.key) ? 0 : target.requiredMonthly;
-  const essentialSpendable = income - fixed - bills - extra - frozen;
+  const reservedGoals = targetPressure + goals;
+  const essentialSpendable = income - fixedHead - bills - extra - frozen - reservedGoals;
   return {
     cycle,
     income,
     incomeSource: Number(actual.netIncome || 0) > 0 ? "actual" : "estimated",
     payroll,
+    fixedHead,
+    food,
     fixed,
     bills,
     extra,
@@ -358,7 +367,8 @@ function currentCyclePlan() {
     essentialSpendable,
     flexibleAfterHappy: essentialSpendable - happy,
     targetPressure,
-    targetShortfall: Math.max(0, targetPressure - Math.max(0, essentialSpendable - gifts - happy - goals)),
+    reservedGoals,
+    targetShortfall: Math.max(0, -essentialSpendable),
     spendable: essentialSpendable,
   };
 }
@@ -453,7 +463,7 @@ function renderDashboard() {
   const progress = Math.min(100, Math.max(0, (target.saved / target.target) * 100));
   setText("cycleLabel", `${formatDate(plan.cycle.start)} - ${formatDate(plan.cycle.end)}`);
   setText("spendableAmount", yuan(plan.spendable));
-  setText("spendableHint", plan.spendable >= 0 ? "\u8fd9\u662f\u6263\u9664\u623f\u79df\u3001\u5403\u996d\u3001\u8d26\u5355\u548c\u4e0b\u6708\u51bb\u7ed3\u540e\u7684\u751f\u6d3b\u53ef\u652f\u914d\uff0c\u8fd8\u6ca1\u6263\u4eba\u60c5\u3001\u5feb\u4e50\u6d88\u8d39\u548c\u957f\u671f\u5b58\u6b3e\u76ee\u6807\u3002" : "\u751f\u6d3b\u73b0\u91d1\u6d41\u4e3a\u8d1f\uff1a\u662f\u5fc5\u8981\u652f\u51fa\u548c\u8d26\u5355\u5df2\u8d85\u8fc7\u6536\u5165\uff0c\u4e0d\u662f\u4f60\u5df2\u7ecf\u82b1\u8d85\u3002");
+  setText("spendableHint", plan.spendable >= 0 ? "\u8fd9\u662f\u5148\u6263\u957f\u671f\u5b58\u6b3e\u3001\u533b\u7f8e/\u65c5\u884c\u76ee\u6807\u3001\u623f\u79df\u6c34\u7535\u8bdd\u8d39\u901a\u52e4\u548c\u8d26\u5355\u540e\u5269\u4e0b\u7684\u94b1\uff1b\u5403\u996d\u3001\u65e5\u5e38\u5f00\u9500\u3001\u5feb\u4e50\u6d88\u8d39\u3001\u4eba\u60c5\u90fd\u4ece\u8fd9\u91cc\u82b1\u3002" : "\u53ef\u652f\u914d\u4e3a\u8d1f\uff1a\u957f\u671f\u5b58\u6b3e/\u76ee\u6807\u9884\u7559+\u56fa\u5b9a\u5927\u5934+\u8d26\u5355\u5df2\u8d85\u8fc7\u672c\u671f\u6536\u5165\uff0c\u9700\u8981\u964d\u76ee\u6807\u6216\u964d\u652f\u51fa\u3002");
   setText("targetProgress", `${Math.round(progress)}%`);
   document.getElementById("targetBar").style.width = `${progress}%`;
   setText("annualSurplus", yuan(annual.surplus));
@@ -553,16 +563,13 @@ function renderMonthlyBarChart(target) {
 function renderAllocation(plan) {
   const rows = [
     ["\u672c\u5468\u671f\u6536\u5165", plan.income, plan.incomeSource === "actual" ? "\u4f7f\u7528\u4f60\u5f55\u5165\u7684\u5b9e\u53d1\u5230\u624b\u5de5\u8d44\uff0c\u5df2\u7ecf\u662f\u6263\u4e86\u4e94\u9669\u4e00\u91d1\u548c\u4e2a\u7a0e\u7684\u6570" : "\u4f7f\u7528\u5e95\u85aa\u3001\u7ee9\u6548\u3001\u4e94\u9669\u4e00\u91d1\u548c\u4e2a\u7a0e\u9884\u6d4b"],
-    ["\u5fc5\u8981\u751f\u6d3b", -plan.fixed, "\u623f\u79df\u3001\u6c34\u7535\u3001\u8bdd\u8d39\u3001\u901a\u52e4\u3001\u4e09\u9910"],
+    ["15\u4e07\u957f\u671f\u5b58\u6b3e", -plan.targetPressure, "\u8fd9\u7b14\u5148\u5b58\u8d77\u6765\uff0c\u9ed8\u8ba4\u4e0d\u4ece\u65e5\u5e38\u91cc\u82b1"],
+    ["\u533b\u7f8e/\u65c5\u884c\u76ee\u6807", -plan.goals, "\u533b\u7f8e\u3001\u65c5\u884c\u7b49\u76ee\u6807\u7684\u6bcf\u6708\u9884\u7559\uff0c\u4e5f\u5148\u4ece\u6536\u5165\u91cc\u6263\u6389"],
+    ["\u56fa\u5b9a\u5927\u5934", -plan.fixedHead, "\u53ea\u542b\u623f\u79df\u3001\u6c34\u7535\u3001\u8bdd\u8d39\u3001\u901a\u52e4\uff1b\u5403\u996d\u4e0d\u5728\u8fd9\u91cc\u6263"],
     ["\u672c\u671f\u8d26\u5355", -plan.bills, "\u624b\u673a\u5206\u671f\u548c\u5230\u671f\u8d26\u5355"],
     ["\u8865\u5145\u652f\u51fa", -plan.extra, "\u4f60\u624b\u52a8\u8bb0\u5f55\u7684\u56fa\u5b9a\u6216\u610f\u5916\u652f\u51fa"],
     ["\u4e0b\u6708\u51bb\u7ed3", -plan.frozen, "\u5148\u7528\u540e\u4ed8\u3001\u4fe1\u7528\u5361\u3001\u6708\u4ed8"],
-    ["\u4eba\u60c5\u65e5\u5386", -plan.gifts, "\u672c\u6708\u751f\u65e5\u548c\u793c\u7269\u9884\u7b97"],
-    ["\u751f\u6d3b\u53ef\u652f\u914d", plan.essentialSpendable, "\u8fd9\u4e2a\u6570\u4e0d\u542b\u4eba\u60c5\u3001\u5feb\u4e50\u6d88\u8d39\u548c\u957f\u671f\u5b58\u6b3e\u76ee\u6807"],
-    ["\u5feb\u4e50\u6d88\u8d39\u4e0a\u9650", -plan.happy, "\u8863\u670d\u3001\u5305\u5305\u3001\u5316\u5986\u54c1\u7b49"],
-    ["\u533b\u7f8e\u4f18\u5148\u76ee\u6807", -priorityWishReserve(), "\u76ae\u80a4\u7ba1\u7406\u4f18\u5148\uff0c\u6709\u4f59\u529b\u5148\u6ee1\u8db3\u5b83"],
-    ["\u4eca\u5e74\u65c5\u884c\u4e00\u6b21", -flexWishReserve(), "\u4eca\u5e74\u53ea\u7559\u4e00\u6b21\u65c5\u884c\u9884\u7b97\uff0c\u5176\u4ed6\u65c5\u884c\u6682\u505c"],
-    ["15\u4e07\u76ee\u6807\u538b\u529b", -plan.targetPressure, "\u8fd9\u662f\u5355\u72ec\u7684\u5b58\u6b3e\u7ebf\uff0c\u4e0d\u518d\u76f4\u63a5\u628a\u9996\u9875\u53ef\u82b1\u6263\u6210\u8d1f\u6570"],
+    ["\u53ef\u652f\u914d\u6c60", plan.spendable, `\u5403\u996d\u9884\u4f30 ${yuan(plan.food)}\u3001\u4eba\u60c5 ${yuan(plan.gifts)}\u3001\u5feb\u4e50\u6d88\u8d39 ${yuan(plan.happy)} \u548c\u65e5\u5e38\u5f00\u9500\u90fd\u4ece\u8fd9\u91cc\u5b89\u6392`],
   ];
   document.getElementById("allocationList").innerHTML = rows
     .map(([name, amount, hint]) => `<div class="allocation-row"><div><strong>${name}</strong><small>${hint}</small></div><strong class="${amount >= 0 ? "amount-good" : ""}">${yuan(amount)}</strong></div>`)
@@ -616,8 +623,8 @@ function renderNotices(plan) {
       const remaining = Number(state.expensePlan.coolingDays || 0) - daysSince(item.addedDate);
       notices.push(remaining > 0 ? `\u60f3\u4e70\uff1a${item.name} \u51b7\u9759\u671f\u8fd8\u5269 ${remaining} \u5929\u3002` : `\u60f3\u4e70\uff1a${item.name} \u5df2\u8fc7\u51b7\u9759\u671f\uff0c\u68c0\u67e5\u989d\u5ea6\u540e\u518d\u4e70\u3002`);
     });
-  if (plan.spendable < 0) notices.unshift("\u751f\u6d3b\u73b0\u91d1\u6d41\u4e3a\u8d1f\uff1a\u5fc5\u8981\u652f\u51fa\u548c\u8d26\u5355\u5df2\u8d85\u8fc7\u672c\u671f\u6536\u5165\u3002");
-  else if (plan.targetShortfall > 0) notices.unshift(`\u751f\u6d3b\u73b0\u91d1\u6d41\u8fd8\u6709 ${yuan(plan.spendable)}\uff0c\u4f46\u82e5\u8981\u540c\u65f6\u8fbe\u523015\u4e07\u76ee\u6807\uff0c\u672c\u6708\u8fd8\u5dee ${yuan(plan.targetShortfall)}\u3002`);
+  if (plan.spendable < 0) notices.unshift(`\u53ef\u652f\u914d\u6c60\u4e3a\u8d1f\uff1a\u957f\u671f\u5b58\u6b3e\u548c\u76ee\u6807\u9884\u7559\u5df2\u5148\u6263\uff0c\u672c\u6708\u8fd8\u5dee ${yuan(plan.targetShortfall)}\uff0c\u53ef\u4ee5\u5148\u964d\u4f4e\u65c5\u884c/\u5feb\u4e50\u76ee\u6807\u6216\u8c03\u6574\u5b58\u6b3e\u8282\u594f\u3002`);
+  else notices.unshift(`\u53ef\u652f\u914d\u6c60\uff1a${yuan(plan.spendable)}\uff0c\u5403\u996d\u3001\u65e5\u5e38\u5f00\u9500\u3001\u5feb\u4e50\u6d88\u8d39\u548c\u4eba\u60c5\u90fd\u4ece\u8fd9\u91cc\u5b89\u6392\u3002`);
   document.getElementById("noticeList").innerHTML = notices.slice(0, 6).map((text) => `<div class="notice"><div><strong>${escapeHTML(text)}</strong><small>\u7cfb\u7edf\u6839\u636e\u5f53\u524d\u5468\u671f\u81ea\u52a8\u751f\u6210</small></div></div>`).join("");
 }
 
