@@ -1,10 +1,11 @@
-const CACHE_NAME = "finance-planner-v1";
+const CACHE_NAME = "finance-planner-v2";
 const APP_ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
   "./manifest.webmanifest",
+  "./manifest-money.png",
   "./icon.svg"
 ];
 
