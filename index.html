@@ -336,6 +336,29 @@
               <label>冷静期天数<input name="coolingDays" type="number" min="0" max="60" /></label>
             </fieldset>
           </form>
+          <article class="panel settings-extra-panel">
+            <div class="panel-head">
+              <div>
+                <h3>人情日历</h3>
+                <p>生日、节日、礼物预算都在这里维护；总览只显示当前发薪月里未预留的事件。</p>
+              </div>
+              <button class="primary-button" id="newGift" type="button">新增人情</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>对象/事件</th>
+                    <th>月份</th>
+                    <th>预算范围</th>
+                    <th>是否已预留</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="giftTable"></tbody>
+              </table>
+            </div>
+          </article>
         </section>
       </main>
     </div>

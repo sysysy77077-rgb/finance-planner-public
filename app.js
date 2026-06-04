@@ -128,6 +128,7 @@ function normalizeState(nextState) {
   }
   nextState.savingRecords = nextState.savingRecords ?? {};
   nextState.goals = (nextState.goals ?? []).filter((goal) => !isLegacySeedGoal(goal));
+  nextState.giftEvents = (nextState.giftEvents ?? []).filter((event) => !isLegacyGiftEvent(event));
   nextState.goals.forEach((goal) => {
     if (goal.name.includes("\u5b89\u5168\u57ab")) {
       goal.name = TEXT.bufferGoal;
@@ -147,6 +148,18 @@ function isLegacySeedGoal(goal) {
   if (goal.name === TEXT.yearTravel && amount === 4000 && saved === 0 && reserve === 350) return true;
   if ([TEXT.travelWithPartner, TEXT.travelWithFamily, TEXT.travelWithFriends].includes(goal.name) && saved === 0 && reserve === 0) return true;
   return false;
+}
+
+function isLegacyGiftEvent(event) {
+  const legacy = [
+    [TEXT.dadBirthday, 1, 0, 500],
+    [TEXT.momBirthday, 5, 500, 800],
+    [TEXT.partnerBirthday, 5, 500, 1000],
+    [TEXT.friendBirthday8, 8, 0, 200],
+    [TEXT.friendBirthday11, 11, 500, 700],
+    [TEXT.friendBirthday12, 12, 500, 700],
+  ];
+  return !event.reserved && legacy.some(([name, month, min, max]) => event.name === name && Number(event.month) === month && Number(event.min || 0) === min && Number(event.max || 0) === max);
 }
 
 function saveState() {
@@ -452,6 +465,7 @@ function render() {
   renderExpenses();
   renderWishes();
   renderSettings();
+  renderGifts();
 }
 
 function renderNavigation() {
@@ -636,7 +650,9 @@ function renderNotices(plan) {
       : `${target.label}\uff1a\u8fd8\u5dee ${yuan(target.gap)}\uff0c\u5269 ${target.monthsLeft} \u4e2a\u53ef\u6512\u6708\uff0c\u6bcf\u6708\u81f3\u5c11\u8981\u6512 ${yuan(target.requiredMonthly)}\u3002`);
   }
   activeBillsFor(plan.cycle.key).forEach((bill) => notices.push(`\u8d26\u5355\uff1a${bill.name} ${yuan(bill.amount)}\uff0c\u6bcf\u6708${bill.dueDay}\u53f7\u524d\u5904\u7406\u3002`));
-  state.giftEvents.filter((event) => Number(event.month) === parseMonth(plan.cycle.key).getMonth() + 1).forEach((event) => notices.push(`\u4eba\u60c5\uff1a${event.name}\uff0c\u9884\u7b97 ${event.min ? yuan(event.min) : "\u7075\u6d3b"} - ${yuan(event.max)}\u3002`));
+  state.giftEvents
+    .filter((event) => Number(event.month) === parseMonth(plan.cycle.key).getMonth() + 1 && !event.reserved)
+    .forEach((event) => notices.push(`\u4eba\u60c5\uff1a${event.name}\uff0c\u9884\u7b97 ${event.min ? yuan(event.min) : "\u7075\u6d3b"} - ${yuan(event.max)}\u3002`));
   state.wishItems
     .filter((item) => item.status === "watching")
     .forEach((item) => {
@@ -732,6 +748,20 @@ function renderSettings() {
   });
 }
 
+function renderGifts() {
+  const table = document.getElementById("giftTable");
+  if (!table) return;
+  if (!state.giftEvents.length) {
+    table.innerHTML = `<tr><td colspan="5">\u6682\u65e0\u4eba\u60c5\u4e8b\u4ef6\uff0c\u65b0\u589e\u540e\u624d\u4f1a\u5728\u603b\u89c8\u63d0\u9192\u91cc\u51fa\u73b0\u3002</td></tr>`;
+    return;
+  }
+  table.innerHTML = state.giftEvents
+    .slice()
+    .sort((a, b) => Number(a.month || 0) - Number(b.month || 0))
+    .map((event) => `<tr><td>${escapeHTML(event.name)}</td><td>${Number(event.month || 0)}\u6708</td><td>${event.min ? yuan(event.min) : "\u7075\u6d3b"} - ${yuan(event.max)}</td><td><span class="status ${event.reserved ? "done" : "active"}">${event.reserved ? "\u5df2\u9884\u7559" : "\u672a\u9884\u7559"}</span></td><td><div class="row-actions"><button class="mini-button" data-action="edit-gift" data-id="${event.id}" type="button">\u7f16\u8f91</button><button class="mini-button" data-action="toggle-gift" data-id="${event.id}" type="button">${event.reserved ? "\u53d6\u6d88\u9884\u7559" : "\u6807\u8bb0\u5df2\u9884\u7559"}</button><button class="mini-button danger-button" data-action="delete-gift" data-id="${event.id}" type="button">\u5220\u9664</button></div></td></tr>`)
+    .join("");
+}
+
 function openGoalDialog(goal = {}) {
   dialogType = "goal";
   editingId = goal.id || "";
@@ -783,6 +813,18 @@ function openWishDialog(item = {}) {
     <label>\u52a0\u5165\u65e5\u671f<input name="addedDate" type="date" value="${item.addedDate || today().toISOString().slice(0, 10)}" /></label>
     <label>\u72b6\u6001<select name="status">${optionList(["watching", "bought", "archived"], item.status || "watching", wishLabel)}</select></label>
     <label class="full">\u5907\u6ce8<input name="note" value="${escapeAttr(item.note || "")}" /></label>
+  `);
+}
+
+function openGiftDialog(event = {}) {
+  dialogType = "gift";
+  editingId = event.id || "";
+  openDialog(editingId ? "\u7f16\u8f91\u4eba\u60c5" : "\u65b0\u589e\u4eba\u60c5", `
+    <label>\u5bf9\u8c61/\u4e8b\u4ef6<input name="name" required value="${escapeAttr(event.name || "")}" /></label>
+    <label>\u6708\u4efd<input name="month" type="number" min="1" max="12" required value="${event.month || parseMonth(cycleFor().key).getMonth() + 1}" /></label>
+    <label>\u9884\u7b97\u4e0b\u9650<input name="min" type="number" min="0" step="50" value="${event.min || 0}" /></label>
+    <label>\u9884\u7b97\u4e0a\u9650<input name="max" type="number" min="0" step="50" required value="${event.max || 0}" /></label>
+    <label>\u662f\u5426\u5df2\u9884\u7559<select name="reserved">${optionList(["false", "true"], String(event.reserved ?? false), (value) => (value === "true" ? "\u662f" : "\u5426"))}</select></label>
   `);
 }
 
@@ -859,6 +901,17 @@ function saveDialog() {
       note: formData.get("note").trim(),
     });
     showToast(editingId ? "\u60f3\u4e70\u5df2\u66f4\u65b0" : "\u60f3\u4e70\u5df2\u65b0\u589e");
+  }
+  if (dialogType === "gift") {
+    upsert(state.giftEvents, {
+      id: editingId || uid(),
+      name: formData.get("name").trim(),
+      month: Number(formData.get("month")),
+      min: Number(formData.get("min")),
+      max: Number(formData.get("max")),
+      reserved: formData.get("reserved") === "true",
+    });
+    showToast(editingId ? "\u4eba\u60c5\u5df2\u66f4\u65b0" : "\u4eba\u60c5\u5df2\u65b0\u589e");
   }
   dialogType = "";
   editingId = "";
@@ -996,6 +1049,19 @@ function handleActions(event) {
     showToast("\u60f3\u4e70\u5df2\u79fb\u5165\u5386\u53f2");
     render();
   }
+  if (action === "edit-gift") openGiftDialog(state.giftEvents.find((item) => item.id === id));
+  if (action === "toggle-gift") {
+    const event = state.giftEvents.find((item) => item.id === id);
+    event.reserved = !event.reserved;
+    showToast(event.reserved ? "\u4eba\u60c5\u5df2\u6807\u8bb0\u9884\u7559" : "\u4eba\u60c5\u5df2\u53d6\u6d88\u9884\u7559");
+    render();
+  }
+  if (action === "delete-gift") {
+    if (!confirm("\u786e\u5b9a\u5220\u9664\u8fd9\u4e2a\u4eba\u60c5\u4e8b\u4ef6\u5417\uff1f")) return;
+    state.giftEvents = state.giftEvents.filter((item) => item.id !== id);
+    showToast("\u4eba\u60c5\u5df2\u5220\u9664");
+    render();
+  }
 }
 
 function exportData() {
@@ -1044,6 +1110,7 @@ function bindEvents() {
   document.getElementById("newExpense").addEventListener("click", () => openExpenseDialog());
   document.getElementById("newQuickExpense").addEventListener("click", () => openExpenseDialog());
   document.getElementById("newWish").addEventListener("click", () => openWishDialog());
+  document.getElementById("newGift").addEventListener("click", () => openGiftDialog());
   document.getElementById("actualSalaryForm").addEventListener("input", (event) => {
     if (event.target.name) updateActualSalary(event.target.name, event.target.value);
   });
