@@ -74,9 +74,7 @@ const defaults = {
   savingRecordMode: "monthly",
   extraExpenses: [],
   debtBills: [],
-  goals: [
-    { id: uid(), name: TEXT.age25Goal, category: TEXT.longDeposit, targetAmount: 150000, savedAmount: 0, monthlyReserve: 0, targetDate: "2029-06", priority: "high", status: "active", isMainSavingsGoal: true },
-  ],
+  goals: [],
   giftEvents: [],
   wishItems: [],
 };
@@ -123,40 +121,32 @@ function mergeState(base, saved) {
 }
 
 function normalizeState(nextState) {
-  nextState.profile.age25Target = 150000;
   nextState.profile.savingPausedMonths = nextState.profile.savingPausedMonths ?? [];
   if (nextState.savingRecordMode !== "monthly") {
     nextState.savingRecords = {};
     nextState.savingRecordMode = "monthly";
   }
   nextState.savingRecords = nextState.savingRecords ?? {};
-  const mainGoal = nextState.goals.find((goal) => goal.isMainSavingsGoal || /25.*(\u4e07|150000|20\u4e07|15\u4e07)/.test(goal.name));
-  if (mainGoal) {
-    mainGoal.name = TEXT.age25Goal;
-    mainGoal.category = TEXT.longDeposit;
-    mainGoal.targetAmount = 150000;
-    mainGoal.targetDate = mainGoal.targetDate || "2029-06";
-    mainGoal.isMainSavingsGoal = true;
-  }
+  nextState.goals = (nextState.goals ?? []).filter((goal) => !isLegacySeedGoal(goal));
   nextState.goals.forEach((goal) => {
     if (goal.name.includes("\u5b89\u5168\u57ab")) {
       goal.name = TEXT.bufferGoal;
       goal.category = TEXT.deposit;
     }
-    if (goal.category === TEXT.aesthetic || goal.name.includes("\u76ae\u80a4") || goal.name.includes("\u533b\u7f8e")) {
-      goal.priority = "high";
-      goal.status = "active";
-      goal.budgetMode = "priority";
-      goal.monthlyReserve = Number(goal.monthlyReserve || 250);
-    }
-    if ([TEXT.travelWithPartner, TEXT.travelWithFamily, TEXT.travelWithFriends].includes(goal.name)) {
-      goal.status = "archived";
-      goal.priority = "low";
-      goal.monthlyReserve = 0;
-      goal.budgetMode = "paused";
-    }
+    goal.isMainSavingsGoal = Boolean(goal.isMainSavingsGoal || isLongSavingsGoal(goal));
   });
   return nextState;
+}
+
+function isLegacySeedGoal(goal) {
+  const amount = Number(goal.targetAmount || 0);
+  const saved = Number(goal.savedAmount || 0);
+  const reserve = Number(goal.monthlyReserve || 0);
+  if (goal.name === TEXT.age25Goal && amount === 150000 && saved === 0 && reserve === 0) return true;
+  if (goal.name === TEXT.skinCare && amount === 1000 && saved === 0 && reserve === 250) return true;
+  if (goal.name === TEXT.yearTravel && amount === 4000 && saved === 0 && reserve === 350) return true;
+  if ([TEXT.travelWithPartner, TEXT.travelWithFamily, TEXT.travelWithFriends].includes(goal.name) && saved === 0 && reserve === 0) return true;
+  return false;
 }
 
 function saveState() {
@@ -230,8 +220,14 @@ function actualSavingsTotal() {
   return Number(mainGoal?.savedAmount || state.profile.currentSavings || 0);
 }
 
+function isLongSavingsGoal(goal) {
+  const name = goal?.name || "";
+  const category = goal?.category || "";
+  return goal?.isMainSavingsGoal || category === TEXT.longDeposit || /25|15\u4e07|20\u4e07|30\u4e07|\u957f\u671f\u5b58\u6b3e|\u5e95\u7ebf/.test(name);
+}
+
 function mainSavingsGoal() {
-  return state.goals.find((goal) => goal.isMainSavingsGoal) ?? state.goals.find((goal) => goal.name.includes("25"));
+  return activeGoals().find((goal) => goal.isMainSavingsGoal) ?? activeGoals().find((goal) => isLongSavingsGoal(goal));
 }
 
 function budgetIncomeFor(month, scenario = state.scenario) {
@@ -288,7 +284,7 @@ function monthlyGoalReserve() {
 }
 
 function monthlyOptionalGoalReserve() {
-  return budgetedWishGoals().reduce((sum, goal) => sum + Number(goal.monthlyReserve || 0), 0);
+  return activeGoals().filter((goal) => !isLongSavingsGoal(goal)).reduce((sum, goal) => sum + Number(goal.monthlyReserve || 0), 0);
 }
 
 function budgetedWishGoals() {
@@ -309,11 +305,14 @@ function giftReserveForMonth(month) {
 }
 
 function monthlyExpenseFor(month) {
+  const target = targetPlan();
+  const targetReserve = target.enabled && !isSavingPausedMonth(month) ? target.requiredMonthly : 0;
   return (
     fixedMonthlyCost() +
     activeBillsFor(month).reduce((sum, bill) => sum + Number(bill.amount || 0), 0) +
     extraExpenseTotalFor(month) +
     monthlyOptionalGoalReserve() +
+    targetReserve +
     giftReserveForMonth(month) +
     Number(state.expensePlan.happyBudget || 0)
   );
@@ -322,14 +321,18 @@ function monthlyExpenseFor(month) {
 function targetPlan() {
   const now = cycleFor().key;
   const mainGoal = mainSavingsGoal();
-  const target = Number(state.profile.age25Target || 150000);
+  if (!mainGoal) {
+    const saved = actualSavingsTotal();
+    return { enabled: false, target: 0, saved, targetDate: "", monthsLeft: 0, gap: 0, requiredMonthly: 0, plannedMonthly: 0, mainGoal: null, label: "\u957f\u671f\u5b58\u6b3e" };
+  }
+  const target = Number(mainGoal.targetAmount || state.profile.age25Target || 0);
   const saved = actualSavingsTotal();
-  const targetDate = mainGoal?.targetDate || "2029-06";
+  const targetDate = mainGoal.targetDate || monthKey(today());
   const monthsLeft = countSavingMonths(now, targetDate);
   const gap = Math.max(0, target - saved);
   const requiredMonthly = Math.ceil(gap / monthsLeft);
   const plannedMonthly = Number(mainGoal?.monthlyReserve || 0);
-  return { target, saved, targetDate, monthsLeft, gap, requiredMonthly, plannedMonthly, mainGoal };
+  return { enabled: true, target, saved, targetDate, monthsLeft, gap, requiredMonthly, plannedMonthly, mainGoal, label: mainGoal.name };
 }
 
 function currentCyclePlan() {
@@ -347,7 +350,7 @@ function currentCyclePlan() {
   const happy = Number(state.expensePlan.happyBudget || 0);
   const payroll = contributionBreakdownFor(cycle.key);
   const target = targetPlan();
-  const targetPressure = isSavingPausedMonth(cycle.key) ? 0 : target.requiredMonthly;
+  const targetPressure = target.enabled && !isSavingPausedMonth(cycle.key) ? target.requiredMonthly : 0;
   const reservedGoals = targetPressure + goals;
   const essentialSpendable = income - fixedHead - bills - extra - frozen - reservedGoals;
   return {
@@ -367,6 +370,8 @@ function currentCyclePlan() {
     essentialSpendable,
     flexibleAfterHappy: essentialSpendable - happy,
     targetPressure,
+    targetLabel: target.label,
+    hasLongSavingsTarget: target.enabled,
     reservedGoals,
     targetShortfall: Math.max(0, -essentialSpendable),
     spendable: essentialSpendable,
@@ -375,6 +380,7 @@ function currentCyclePlan() {
 
 function annualProjection(scenario = state.scenario) {
   const year = today().getFullYear();
+  const target = targetPlan();
   let income = 0;
   let fixed = 0;
   let bills = 0;
@@ -389,7 +395,7 @@ function annualProjection(scenario = state.scenario) {
       income: budgetIncomeFor(key, scenario),
       fixed: fixedMonthlyCost(),
       bills: activeBillsFor(key).reduce((sum, bill) => sum + Number(bill.amount || 0), 0) + extraExpenseTotalFor(key),
-      goals: monthlyOptionalGoalReserve(),
+      goals: monthlyOptionalGoalReserve() + (target.enabled && !isSavingPausedMonth(key) ? target.requiredMonthly : 0),
       gifts: giftReserveForMonth(key),
       happy: Number(state.expensePlan.happyBudget || 0),
     };
@@ -411,6 +417,7 @@ function annualProjection(scenario = state.scenario) {
 function threeYearProjection(scenario = state.scenario) {
   const start = monthKey(today());
   let savings = actualSavingsTotal();
+  const target = targetPlan();
   const yearly = [];
   for (let i = 0; i < state.profile.planningYears * 12; i += 1) {
     const key = addMonths(start, i);
@@ -421,6 +428,7 @@ function threeYearProjection(scenario = state.scenario) {
       activeBillsFor(key).reduce((sum, bill) => sum + Number(bill.amount || 0), 0) -
       extraExpenseTotalFor(key) -
       monthlyOptionalGoalReserve() -
+      (target.enabled && !isSavingPausedMonth(key) ? target.requiredMonthly : 0) -
       giftReserveForMonth(key) -
       Number(state.expensePlan.happyBudget || 0);
     if (date.getMonth() === 0) {
@@ -460,15 +468,15 @@ function renderDashboard() {
   const annual = annualProjection();
   const projection = threeYearProjection();
   const target = targetPlan();
-  const progress = Math.min(100, Math.max(0, (target.saved / target.target) * 100));
+  const progress = target.enabled && target.target > 0 ? Math.min(100, Math.max(0, (target.saved / target.target) * 100)) : 0;
   setText("cycleLabel", `${formatDate(plan.cycle.start)} - ${formatDate(plan.cycle.end)}`);
   setText("spendableAmount", yuan(plan.spendable));
   setText("spendableHint", plan.spendable >= 0 ? "\u8fd9\u662f\u5148\u6263\u957f\u671f\u5b58\u6b3e\u3001\u533b\u7f8e/\u65c5\u884c\u76ee\u6807\u3001\u623f\u79df\u6c34\u7535\u8bdd\u8d39\u901a\u52e4\u548c\u8d26\u5355\u540e\u5269\u4e0b\u7684\u94b1\uff1b\u5403\u996d\u3001\u65e5\u5e38\u5f00\u9500\u3001\u5feb\u4e50\u6d88\u8d39\u3001\u4eba\u60c5\u90fd\u4ece\u8fd9\u91cc\u82b1\u3002" : "\u53ef\u652f\u914d\u4e3a\u8d1f\uff1a\u957f\u671f\u5b58\u6b3e/\u76ee\u6807\u9884\u7559+\u56fa\u5b9a\u5927\u5934+\u8d26\u5355\u5df2\u8d85\u8fc7\u672c\u671f\u6536\u5165\uff0c\u9700\u8981\u964d\u76ee\u6807\u6216\u964d\u652f\u51fa\u3002");
-  setText("targetProgress", `${Math.round(progress)}%`);
+  setText("targetProgress", target.enabled ? `${Math.round(progress)}%` : "\u672a\u8bbe\u7f6e");
   document.getElementById("targetBar").style.width = `${progress}%`;
   setText("annualSurplus", yuan(annual.surplus));
   setText("frozenBills", yuan(plan.frozen));
-  setText("yearStatus", target.gap <= 0 ? "\u5df2\u8fbe\u523015\u4e07\u76ee\u6807" : `\u6bcf\u6708\u81f3\u5c11\u6512 ${yuan(target.requiredMonthly)}`);
+  setText("yearStatus", !target.enabled ? "\u672a\u8bbe\u7f6e\u957f\u671f\u76ee\u6807" : target.gap <= 0 ? "\u5df2\u8fbe\u6210\u76ee\u6807" : `\u6bcf\u6708\u81f3\u5c11\u6512 ${yuan(target.requiredMonthly)}`);
   renderActualSalary(plan);
   renderSavingsTracker(target);
   renderMonthlyBarChart(target);
@@ -504,6 +512,13 @@ function renderSavingsTracker(target) {
   const key = cycleFor().key;
   const actualThisMonth = state.savingRecords?.[key] ?? "";
   if (form.elements.actualSavings && form.elements.actualSavings.value !== String(actualThisMonth)) form.elements.actualSavings.value = actualThisMonth;
+  if (!target.enabled) {
+    setText("actualSavingsAmount", yuan(actualSavingsTotal()));
+    setText("targetGapAmount", yuan(0));
+    setText("requiredMonthlyAmount", yuan(0));
+    setText("savingPlanHint", "\u8fd8\u6ca1\u6709\u8bbe\u7f6e\u957f\u671f\u5b58\u6b3e\u76ee\u6807\u3002\u5230\u8ba1\u5212\u76ee\u6807\u91cc\u65b0\u589e\u4e00\u4e2a\u957f\u671f\u5b58\u6b3e\u76ee\u6807\u540e\uff0c\u8fd9\u91cc\u4f1a\u81ea\u52a8\u5012\u63a8\u3002");
+    return;
+  }
   setText("actualSavingsAmount", yuan(target.saved));
   setText("targetGapAmount", yuan(target.gap));
   setText("requiredMonthlyAmount", yuan(target.requiredMonthly));
@@ -525,7 +540,7 @@ function monthlyChartData(target) {
     const expense = monthlyExpenseFor(key);
     saving += income - expense;
     const passedSavingMonths = countSavingMonths(cycleFor().key, key);
-    const targetSaving = isSavingPausedMonth(key) ? target.saved : Math.min(target.target, target.saved + target.requiredMonthly * passedSavingMonths);
+    const targetSaving = target.enabled ? (isSavingPausedMonth(key) ? target.saved : Math.min(target.target, target.saved + target.requiredMonthly * passedSavingMonths)) : 0;
     rows.push({ key, income, expense, saving: Math.max(0, saving), targetSaving });
   }
   return rows;
@@ -533,7 +548,7 @@ function monthlyChartData(target) {
 
 function renderMonthlyBarChart(target) {
   const rows = monthlyChartData(target);
-  const maxValue = Math.max(1, ...rows.flatMap((row) => [row.income, row.expense, row.saving, row.targetSaving]));
+  const maxValue = Math.max(1, ...rows.flatMap((row) => target.enabled ? [row.income, row.expense, row.saving, row.targetSaving] : [row.income, row.expense, row.saving]));
   document.getElementById("monthlyBarChart").innerHTML = rows
     .map((row) => {
       const incomeHeight = percent(row.income, maxValue);
@@ -547,9 +562,9 @@ function renderMonthlyBarChart(target) {
             <span>\u6536\u5165 ${yuan(row.income)}</span>
             <span>\u652f\u51fa ${yuan(row.expense)}</span>
             <span>\u7d2f\u8ba1\u5b58\u6b3e ${yuan(row.saving)}</span>
-            <span>15\u4e07\u76ee\u6807\u7ebf ${yuan(row.targetSaving)}</span>
+            ${target.enabled ? `<span>${escapeHTML(target.label)} \u76ee\u6807\u7ebf ${yuan(row.targetSaving)}</span>` : ""}
           </div>
-          <span class="target-marker" style="bottom:${targetBottom}%"></span>
+          ${target.enabled ? `<span class="target-marker" style="bottom:${targetBottom}%"></span>` : ""}
           <i class="bar income" title="\u6536\u5165 ${yuan(row.income)}" style="height:${incomeHeight}%"></i>
           <i class="bar expense" title="\u652f\u51fa ${yuan(row.expense)}" style="height:${expenseHeight}%"></i>
           <i class="bar saving" title="\u7d2f\u8ba1\u5b58\u6b3e ${yuan(row.saving)}" style="height:${savingHeight}%"></i>
@@ -563,14 +578,14 @@ function renderMonthlyBarChart(target) {
 function renderAllocation(plan) {
   const rows = [
     ["\u672c\u5468\u671f\u6536\u5165", plan.income, plan.incomeSource === "actual" ? "\u4f7f\u7528\u4f60\u5f55\u5165\u7684\u5b9e\u53d1\u5230\u624b\u5de5\u8d44\uff0c\u5df2\u7ecf\u662f\u6263\u4e86\u4e94\u9669\u4e00\u91d1\u548c\u4e2a\u7a0e\u7684\u6570" : "\u4f7f\u7528\u5e95\u85aa\u3001\u7ee9\u6548\u3001\u4e94\u9669\u4e00\u91d1\u548c\u4e2a\u7a0e\u9884\u6d4b"],
-    ["15\u4e07\u957f\u671f\u5b58\u6b3e", -plan.targetPressure, "\u8fd9\u7b14\u5148\u5b58\u8d77\u6765\uff0c\u9ed8\u8ba4\u4e0d\u4ece\u65e5\u5e38\u91cc\u82b1"],
-    ["\u533b\u7f8e/\u65c5\u884c\u76ee\u6807", -plan.goals, "\u533b\u7f8e\u3001\u65c5\u884c\u7b49\u76ee\u6807\u7684\u6bcf\u6708\u9884\u7559\uff0c\u4e5f\u5148\u4ece\u6536\u5165\u91cc\u6263\u6389"],
     ["\u56fa\u5b9a\u5927\u5934", -plan.fixedHead, "\u53ea\u542b\u623f\u79df\u3001\u6c34\u7535\u3001\u8bdd\u8d39\u3001\u901a\u52e4\uff1b\u5403\u996d\u4e0d\u5728\u8fd9\u91cc\u6263"],
     ["\u672c\u671f\u8d26\u5355", -plan.bills, "\u624b\u673a\u5206\u671f\u548c\u5230\u671f\u8d26\u5355"],
     ["\u8865\u5145\u652f\u51fa", -plan.extra, "\u4f60\u624b\u52a8\u8bb0\u5f55\u7684\u56fa\u5b9a\u6216\u610f\u5916\u652f\u51fa"],
     ["\u4e0b\u6708\u51bb\u7ed3", -plan.frozen, "\u5148\u7528\u540e\u4ed8\u3001\u4fe1\u7528\u5361\u3001\u6708\u4ed8"],
     ["\u53ef\u652f\u914d\u6c60", plan.spendable, `\u5403\u996d\u9884\u4f30 ${yuan(plan.food)}\u3001\u4eba\u60c5 ${yuan(plan.gifts)}\u3001\u5feb\u4e50\u6d88\u8d39 ${yuan(plan.happy)} \u548c\u65e5\u5e38\u5f00\u9500\u90fd\u4ece\u8fd9\u91cc\u5b89\u6392`],
   ];
+  if (plan.hasLongSavingsTarget) rows.splice(1, 0, [plan.targetLabel, -plan.targetPressure, "\u957f\u671f\u5b58\u6b3e\u76ee\u6807\u4f1a\u5148\u9884\u7559\uff0c\u4e0d\u4ece\u65e5\u5e38\u91cc\u82b1"]);
+  if (plan.goals > 0) rows.splice(plan.hasLongSavingsTarget ? 2 : 1, 0, ["\u8ba1\u5212\u76ee\u6807\u9884\u7559", -plan.goals, "\u76ee\u6807\u9875\u91cc\u8fdb\u884c\u4e2d\u7684\u975e\u957f\u671f\u5b58\u6b3e\u76ee\u6807\uff0c\u4f1a\u968f\u4f60\u65b0\u589e/\u5220\u9664\u81ea\u52a8\u589e\u51cf"]);
   document.getElementById("allocationList").innerHTML = rows
     .map(([name, amount, hint]) => `<div class="allocation-row"><div><strong>${name}</strong><small>${hint}</small></div><strong class="${amount >= 0 ? "amount-good" : ""}">${yuan(amount)}</strong></div>`)
     .join("");
@@ -590,6 +605,10 @@ function renderExpenseSummary(plan) {
 }
 
 function renderAnnualRoute(projection, target) {
+  if (!target.enabled) {
+    document.getElementById("annualRoute").innerHTML = `<div class="route-item"><div><strong>\u6682\u65e0\u957f\u671f\u5b58\u6b3e\u8def\u7ebf</strong><small>\u5728\u8ba1\u5212\u76ee\u6807\u91cc\u65b0\u589e\u957f\u671f\u5b58\u6b3e\u76ee\u6807\u540e\uff0c\u8fd9\u91cc\u4f1a\u81ea\u52a8\u5012\u63a8\u6bcf\u5e74\u5e94\u8fbe\u5230\u7684\u91d1\u989d\u3002</small></div><div><strong>${yuan(actualSavingsTotal())}</strong><small>\u5f53\u524d</small></div></div>`;
+    return;
+  }
   const required = target.requiredMonthly;
   let routeSavings = target.saved;
   const rows = [];
@@ -602,19 +621,20 @@ function renderAnnualRoute(projection, target) {
   }
   document.getElementById("annualRoute").innerHTML = rows
     .map((row) => {
-      const pct = Math.min(100, Math.max(0, (row.savings / target.target) * 100));
-      return `<div class="route-item"><div><strong>${row.year} \u5e74\u5e95\u5012\u63a8\u5b58\u6b3e</strong><small>\u6309\u6bcf\u6708\u81f3\u5c11 ${yuan(required)} \u62c6\u89e3\uff0c\u8ddd\u79bb15\u4e07\u8fd8\u6709 ${yuan(Math.max(0, target.target - row.savings))}</small></div><div><strong>${yuan(row.savings)}</strong><small>${Math.round(pct)}%</small></div></div>`;
+      const pct = target.target > 0 ? Math.min(100, Math.max(0, (row.savings / target.target) * 100)) : 0;
+      return `<div class="route-item"><div><strong>${row.year} \u5e74\u5e95\u5012\u63a8\u5b58\u6b3e</strong><small>\u6309\u6bcf\u6708\u81f3\u5c11 ${yuan(required)} \u62c6\u89e3\uff0c\u8ddd\u79bb${escapeHTML(target.label)}\u8fd8\u6709 ${yuan(Math.max(0, target.target - row.savings))}</small></div><div><strong>${yuan(row.savings)}</strong><small>${Math.round(pct)}%</small></div></div>`;
     })
     .join("");
 }
 
 function renderNotices(plan) {
   const target = targetPlan();
-  const notices = [
-    isSavingPausedMonth(plan.cycle.key)
-      ? `15\u4e07\u76ee\u6807\uff1a5\u6708/6\u6708\u662f\u6682\u505c\u6512\u94b1\u6708\uff0c\u672c\u6708\u4e0d\u8981\u6c42\u6512\u3002\u540e\u9762\u5269 ${target.monthsLeft} \u4e2a\u53ef\u6512\u6708\uff0c\u6bcf\u6708\u81f3\u5c11 ${yuan(target.requiredMonthly)}\u3002`
-      : `15\u4e07\u76ee\u6807\uff1a\u8fd8\u5dee ${yuan(target.gap)}\uff0c\u5269 ${target.monthsLeft} \u4e2a\u53ef\u6512\u6708\uff0c\u6bcf\u6708\u81f3\u5c11\u8981\u6512 ${yuan(target.requiredMonthly)}\u3002`,
-  ];
+  const notices = [];
+  if (target.enabled) {
+    notices.push(isSavingPausedMonth(plan.cycle.key)
+      ? `${target.label}\uff1a\u672c\u6708\u662f\u6682\u505c\u6512\u94b1\u6708\uff0c\u4e0d\u8981\u6c42\u6512\u3002\u540e\u9762\u5269 ${target.monthsLeft} \u4e2a\u53ef\u6512\u6708\uff0c\u6bcf\u6708\u81f3\u5c11 ${yuan(target.requiredMonthly)}\u3002`
+      : `${target.label}\uff1a\u8fd8\u5dee ${yuan(target.gap)}\uff0c\u5269 ${target.monthsLeft} \u4e2a\u53ef\u6512\u6708\uff0c\u6bcf\u6708\u81f3\u5c11\u8981\u6512 ${yuan(target.requiredMonthly)}\u3002`);
+  }
   activeBillsFor(plan.cycle.key).forEach((bill) => notices.push(`\u8d26\u5355\uff1a${bill.name} ${yuan(bill.amount)}\uff0c\u6bcf\u6708${bill.dueDay}\u53f7\u524d\u5904\u7406\u3002`));
   state.giftEvents.filter((event) => Number(event.month) === parseMonth(plan.cycle.key).getMonth() + 1).forEach((event) => notices.push(`\u4eba\u60c5\uff1a${event.name}\uff0c\u9884\u7b97 ${event.min ? yuan(event.min) : "\u7075\u6d3b"} - ${yuan(event.max)}\u3002`));
   state.wishItems
@@ -629,7 +649,12 @@ function renderNotices(plan) {
 }
 
 function renderGoalSummary() {
-  document.getElementById("goalSummary").innerHTML = activeGoals()
+  const goals = activeGoals();
+  if (!goals.length) {
+    document.getElementById("goalSummary").innerHTML = `<div class="goal-mini"><div><strong>\u6682\u65e0\u8fdb\u884c\u4e2d\u76ee\u6807</strong><small>\u5230\u8ba1\u5212\u76ee\u6807\u91cc\u65b0\u589e\u540e\uff0c\u603b\u89c8\u4f1a\u81ea\u52a8\u663e\u793a\u3002</small></div><strong>0</strong></div>`;
+    return;
+  }
+  document.getElementById("goalSummary").innerHTML = goals
     .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
     .slice(0, 5)
     .map((goal) => {
@@ -787,11 +812,11 @@ function saveDialog() {
       targetDate: formData.get("targetDate"),
       priority: formData.get("priority"),
       status: formData.get("status"),
-      isMainSavingsGoal: previous?.isMainSavingsGoal || false,
+      isMainSavingsGoal: previous?.isMainSavingsGoal || isLongSavingsGoal({ name: formData.get("name").trim(), category: formData.get("category").trim() }),
     };
     upsert(state.goals, goal);
     if (goal.isMainSavingsGoal) {
-      state.profile.age25Target = 150000;
+      state.profile.age25Target = goal.targetAmount;
       state.savingRecords[cycleFor().key] = goal.savedAmount;
       state.profile.currentSavings = goal.savedAmount;
     }
@@ -872,7 +897,6 @@ function updateActualSavings(rawValue) {
   const mainGoal = mainSavingsGoal();
   if (mainGoal) {
     mainGoal.savedAmount = saved;
-    mainGoal.targetAmount = 150000;
     mainGoal.monthlyReserve = targetPlan().requiredMonthly;
   }
   render();
@@ -932,12 +956,9 @@ function handleActions(event) {
   }
   if (action === "delete-goal") {
     const goal = state.goals.find((item) => item.id === id);
-    if (goal?.isMainSavingsGoal) {
-      showToast("15\u4e07\u5e95\u7ebf\u76ee\u6807\u4e0d\u5efa\u8bae\u5220\u9664\uff0c\u53ef\u4ee5\u7f16\u8f91\u91d1\u989d\u548c\u65e5\u671f");
-      return;
-    }
     if (!confirm("\u786e\u5b9a\u5220\u9664\u8fd9\u4e2a\u76ee\u6807\u5417\uff1f\u5220\u9664\u540e\u4e0d\u4f1a\u518d\u663e\u793a\u5386\u53f2\u3002")) return;
     state.goals = state.goals.filter((item) => item.id !== id);
+    if (goal?.isMainSavingsGoal) state.savingRecords = {};
     showToast("\u76ee\u6807\u5df2\u5220\u9664");
     render();
   }
@@ -1111,7 +1132,7 @@ function wishLabel(status) {
 }
 
 function budgetModeLabel(goal) {
-  if (goal.isMainSavingsGoal) return "15\u4e07\u5e95\u7ebf";
+  if (isLongSavingsGoal(goal)) return "\u957f\u671f\u5b58\u6b3e\u76ee\u6807";
   return { priority: "\u533b\u7f8e\u4f18\u5148", flex: "\u5f39\u6027\u76ee\u6807", paused: "\u6682\u505c", undefined: "\u666e\u901a\u76ee\u6807" }[goal.budgetMode] ?? "\u666e\u901a\u76ee\u6807";
 }
 
