@@ -298,11 +298,22 @@ function activeGoals() {
 }
 
 function monthlyGoalReserve() {
-  return activeGoals().reduce((sum, goal) => sum + Number(goal.monthlyReserve || 0), 0);
+  return activeGoals().reduce((sum, goal) => sum + goalRequiredMonthly(goal), 0);
 }
 
-function monthlyOptionalGoalReserve() {
-  return activeGoals().filter((goal) => !isLongSavingsGoal(goal)).reduce((sum, goal) => sum + Number(goal.monthlyReserve || 0), 0);
+function goalRequiredMonthly(goal, startMonth = cycleFor().key) {
+  if (!goal || goal.status !== "active") return 0;
+  const gap = Math.max(0, Number(goal.targetAmount || 0) - Number(goal.savedAmount || 0));
+  if (gap <= 0) return 0;
+  if (!goal.targetDate || goal.targetDate < startMonth) return gap;
+  return Math.ceil(gap / Math.max(1, monthDiff(startMonth, goal.targetDate) + 1));
+}
+
+function monthlyOptionalGoalReserve(month = cycleFor().key) {
+  const calculationMonth = cycleFor().key;
+  return activeGoals()
+    .filter((goal) => !isLongSavingsGoal(goal) && (!goal.targetDate || month <= goal.targetDate))
+    .reduce((sum, goal) => sum + goalRequiredMonthly(goal, calculationMonth), 0);
 }
 
 function budgetedWishGoals() {
@@ -329,7 +340,7 @@ function monthlyExpenseFor(month) {
     fixedMonthlyCost() +
     activeBillsFor(month).reduce((sum, bill) => sum + Number(bill.amount || 0), 0) +
     extraExpenseTotalFor(month) +
-    monthlyOptionalGoalReserve() +
+    monthlyOptionalGoalReserve(month) +
     targetReserve +
     giftReserveForMonth(month) +
     Number(state.expensePlan.happyBudget || 0)
@@ -363,7 +374,7 @@ function currentCyclePlan() {
   const bills = activeBillsFor(cycle.key).reduce((sum, bill) => sum + Number(bill.amount || 0), 0);
   const extra = extraExpenseTotalFor(cycle.key);
   const frozen = activeBillsFor(cycle.key).filter((bill) => bill.freezeNextCycle).reduce((sum, bill) => sum + Number(bill.amount || 0), 0);
-  const goals = monthlyOptionalGoalReserve();
+  const goals = monthlyOptionalGoalReserve(cycle.key);
   const gifts = giftReserveForMonth(cycle.key);
   const happy = Number(state.expensePlan.happyBudget || 0);
   const payroll = contributionBreakdownFor(cycle.key);
@@ -413,7 +424,7 @@ function annualProjection(scenario = state.scenario) {
       income: budgetIncomeFor(key, scenario),
       fixed: fixedMonthlyCost(),
       bills: activeBillsFor(key).reduce((sum, bill) => sum + Number(bill.amount || 0), 0) + extraExpenseTotalFor(key),
-      goals: monthlyOptionalGoalReserve() + (target.enabled && !isSavingPausedMonth(key) ? target.requiredMonthly : 0),
+      goals: monthlyOptionalGoalReserve(key) + (target.enabled && !isSavingPausedMonth(key) ? target.requiredMonthly : 0),
       gifts: giftReserveForMonth(key),
       happy: Number(state.expensePlan.happyBudget || 0),
     };
@@ -445,7 +456,7 @@ function threeYearProjection(scenario = state.scenario) {
       fixedMonthlyCost() -
       activeBillsFor(key).reduce((sum, bill) => sum + Number(bill.amount || 0), 0) -
       extraExpenseTotalFor(key) -
-      monthlyOptionalGoalReserve() -
+      monthlyOptionalGoalReserve(key) -
       (target.enabled && !isSavingPausedMonth(key) ? target.requiredMonthly : 0) -
       giftReserveForMonth(key) -
       Number(state.expensePlan.happyBudget || 0);
@@ -682,7 +693,8 @@ function renderGoalSummary() {
     .map((goal) => {
       const saved = isLongSavingsGoal(goal) ? actualSavingsTotal() : Number(goal.savedAmount || 0);
       const pct = Math.min(100, Math.round((saved / Number(goal.targetAmount || 1)) * 100));
-      return `<div class="goal-mini"><div><strong>${escapeHTML(goal.name)}</strong><small>${escapeHTML(goal.category)} · ${budgetModeLabel(goal)} · \u5df2\u6512 ${yuan(saved)}</small></div><strong>${pct}%</strong></div>`;
+      const required = isLongSavingsGoal(goal) ? targetPlan().requiredMonthly : goalRequiredMonthly(goal);
+      return `<div class="goal-mini"><div><strong>${escapeHTML(goal.name)}</strong><small>${escapeHTML(goal.category)} · ${budgetModeLabel(goal)} · \u5df2\u6512 ${yuan(saved)} · ${goal.targetDate || "\u672a\u8bbe\u622a\u6b62\u65e5\u671f"}</small><small>\u6bcf\u6708\u81f3\u5c11\u9884\u7559 ${yuan(required)}</small></div><strong>${pct}%</strong></div>`;
     })
     .join("");
 }
@@ -691,7 +703,8 @@ function renderGoals() {
   document.getElementById("goalTable").innerHTML = state.goals
     .map((goal) => {
       const saved = isLongSavingsGoal(goal) ? actualSavingsTotal() : Number(goal.savedAmount || 0);
-      return `<tr><td>${escapeHTML(goal.name)}</td><td>${escapeHTML(goal.category)}<br><small>${budgetModeLabel(goal)}</small></td><td>${yuan(goal.targetAmount)}</td><td>${yuan(saved)}</td><td>${yuan(goal.monthlyReserve)}</td><td>${goal.targetDate || "-"}</td><td><span class="status ${goal.status}">${statusLabel(goal.status)}</span></td><td><div class="row-actions"><button class="mini-button" data-action="edit-goal" data-id="${goal.id}" type="button">\u7f16\u8f91</button><button class="mini-button" data-action="complete-goal" data-id="${goal.id}" type="button">\u5b8c\u6210</button><button class="mini-button" data-action="archive-goal" data-id="${goal.id}" type="button">\u505c\u7528</button><button class="mini-button danger-button" data-action="delete-goal" data-id="${goal.id}" type="button">\u5220\u9664</button></div></td></tr>`;
+      const required = isLongSavingsGoal(goal) ? targetPlan().requiredMonthly : goalRequiredMonthly(goal);
+      return `<tr><td>${escapeHTML(goal.name)}</td><td>${escapeHTML(goal.category)}<br><small>${budgetModeLabel(goal)}</small></td><td>${yuan(goal.targetAmount)}</td><td>${yuan(saved)}</td><td>${yuan(required)}<br><small>\u81ea\u52a8\u5012\u63a8</small></td><td>${goal.targetDate || "-"}</td><td><span class="status ${goal.status}">${statusLabel(goal.status)}</span></td><td><div class="row-actions"><button class="mini-button" data-action="edit-goal" data-id="${goal.id}" type="button">\u7f16\u8f91</button><button class="mini-button" data-action="complete-goal" data-id="${goal.id}" type="button">\u5b8c\u6210</button><button class="mini-button" data-action="archive-goal" data-id="${goal.id}" type="button">\u505c\u7528</button><button class="mini-button danger-button" data-action="delete-goal" data-id="${goal.id}" type="button">\u5220\u9664</button></div></td></tr>`;
     })
     .join("");
 }
@@ -777,8 +790,8 @@ function openGoalDialog(goal = {}) {
     <label>\u76ee\u6807\u7c7b\u578b<select name="goalType">${optionList(["short", "long"], goal.goalType || (isLongSavingsGoal(goal) ? "long" : "short"), (value) => (value === "long" ? "\u957f\u671f\u5b58\u6b3e\uff08\u9996\u9875\u4e3b\u76ee\u6807\uff09" : "\u77ed\u671f\u8ba1\u5212"))}</select></label>
     <label>\u76ee\u6807\u91d1\u989d<input name="targetAmount" type="number" min="0" step="50" required value="${goal.targetAmount || 0}" /></label>
     <label>\u5b9e\u9645\u5df2\u6512<input name="savedAmount" type="number" min="0" step="50" value="${isLongSavingsGoal(goal) ? actualSavingsTotal() : goal.savedAmount || 0}" /></label>
-    <label>\u6bcf\u6708\u9884\u7559<input name="monthlyReserve" type="number" min="0" step="50" value="${goal.monthlyReserve || 0}" /></label>
     <label>\u76ee\u6807\u65e5\u671f<input name="targetDate" type="month" value="${goal.targetDate || monthKey(today())}" /></label>
+    <label class="full">\u6bcf\u6708\u9884\u7559\u7531\u7cfb\u7edf\u6839\u636e\u76ee\u6807\u91d1\u989d\u3001\u5df2\u6512\u91d1\u989d\u548c\u622a\u6b62\u65e5\u671f\u81ea\u52a8\u5012\u63a8\u3002</label>
     <label>\u4f18\u5148\u7ea7<select name="priority">${optionList(["high", "medium", "low"], goal.priority || "medium", priorityLabel)}</select></label>
     <label>\u72b6\u6001<select name="status">${optionList(["active", "done", "archived"], goal.status || "active", statusLabel)}</select></label>
   `);
@@ -858,7 +871,7 @@ function saveDialog() {
       category: formData.get("category").trim(),
       targetAmount: Number(formData.get("targetAmount")),
       savedAmount: Number(formData.get("savedAmount")),
-      monthlyReserve: Number(formData.get("monthlyReserve")),
+      monthlyReserve: 0,
       targetDate: formData.get("targetDate"),
       priority: formData.get("priority"),
       status: formData.get("status"),
@@ -879,6 +892,7 @@ function saveDialog() {
       const recordedSavings = Object.values(state.savingRecords ?? {}).reduce((sum, value) => sum + Math.max(0, Number(value || 0)), 0);
       state.profile.currentSavings = Math.max(0, goal.savedAmount - recordedSavings);
     }
+    goal.monthlyReserve = goal.goalType === "long" ? targetPlan().requiredMonthly : goalRequiredMonthly(goal);
     showToast(editingId ? "\u76ee\u6807\u5df2\u66f4\u65b0" : "\u76ee\u6807\u5df2\u65b0\u589e");
   }
   if (dialogType === "bill") {
@@ -1221,7 +1235,7 @@ function wishLabel(status) {
 
 function budgetModeLabel(goal) {
   if (isLongSavingsGoal(goal)) return "\u957f\u671f\u5b58\u6b3e\u76ee\u6807";
-  return { priority: "\u533b\u7f8e\u4f18\u5148", flex: "\u5f39\u6027\u76ee\u6807", paused: "\u6682\u505c", undefined: "\u666e\u901a\u76ee\u6807" }[goal.budgetMode] ?? "\u666e\u901a\u76ee\u6807";
+  return { priority: "\u4f18\u5148\u76ee\u6807", flex: "\u5f39\u6027\u76ee\u6807", paused: "\u6682\u505c", undefined: "\u666e\u901a\u76ee\u6807" }[goal.budgetMode] ?? "\u666e\u901a\u76ee\u6807";
 }
 
 function expenseTypeLabel(type) {
