@@ -134,7 +134,13 @@ function normalizeState(nextState) {
       goal.name = TEXT.bufferGoal;
       goal.category = TEXT.deposit;
     }
-    goal.isMainSavingsGoal = Boolean(goal.isMainSavingsGoal || isLongSavingsGoal(goal));
+    goal.goalType = goal.goalType || (isLongSavingsGoal(goal) ? "long" : "short");
+    goal.isMainSavingsGoal = goal.goalType === "long";
+  });
+  const longGoals = nextState.goals.filter((goal) => goal.goalType === "long");
+  longGoals.slice(1).forEach((goal) => {
+    goal.goalType = "short";
+    goal.isMainSavingsGoal = false;
   });
   return nextState;
 }
@@ -228,14 +234,13 @@ function actualIncomeFor(month) {
 
 function actualSavingsTotal() {
   const recordTotal = Object.values(state.savingRecords ?? {}).reduce((sum, value) => sum + Math.max(0, Number(value || 0)), 0);
-  if (recordTotal > 0) return Number(state.profile.currentSavings || 0) + recordTotal;
-  const mainGoal = mainSavingsGoal();
-  return Number(mainGoal?.savedAmount || state.profile.currentSavings || 0);
+  return Number(state.profile.currentSavings || 0) + recordTotal;
 }
 
 function isLongSavingsGoal(goal) {
   const name = goal?.name || "";
   const category = goal?.category || "";
+  if (goal?.goalType) return goal.goalType === "long";
   return goal?.isMainSavingsGoal || category === TEXT.longDeposit || /25|15\u4e07|20\u4e07|30\u4e07|\u957f\u671f\u5b58\u6b3e|\u5e95\u7ebf/.test(name);
 }
 
@@ -486,6 +491,7 @@ function renderDashboard() {
   setText("cycleLabel", `${formatDate(plan.cycle.start)} - ${formatDate(plan.cycle.end)}`);
   setText("spendableAmount", yuan(plan.spendable));
   setText("spendableHint", plan.spendable >= 0 ? "\u8fd9\u662f\u5148\u6263\u957f\u671f\u5b58\u6b3e\u3001\u8ba1\u5212\u76ee\u6807\u9884\u7559\u3001\u56fa\u5b9a\u5927\u5934\u548c\u8d26\u5355\u540e\u5269\u4e0b\u7684\u94b1\uff1b\u5403\u996d\u3001\u65e5\u5e38\u5f00\u9500\u3001\u5feb\u4e50\u6d88\u8d39\u3001\u4eba\u60c5\u90fd\u4ece\u8fd9\u91cc\u5b89\u6392\u3002" : "\u53ef\u652f\u914d\u4e3a\u8d1f\uff1a\u5b58\u6b3e/\u8ba1\u5212\u76ee\u6807\u9884\u7559+\u56fa\u5b9a\u5927\u5934+\u8d26\u5355\u5df2\u8d85\u8fc7\u672c\u671f\u6536\u5165\uff0c\u9700\u8981\u8c03\u6574\u76ee\u6807\u6216\u652f\u51fa\u3002");
+  setText("targetProgressLabel", target.enabled ? target.label : "\u957f\u671f\u5b58\u6b3e\u8fdb\u5ea6");
   setText("targetProgress", target.enabled ? `${Math.round(progress)}%` : "\u672a\u8bbe\u7f6e");
   document.getElementById("targetBar").style.width = `${progress}%`;
   setText("annualSurplus", yuan(annual.surplus));
@@ -494,6 +500,7 @@ function renderDashboard() {
   renderActualSalary(plan);
   renderSavingsTracker(target);
   renderMonthlyBarChart(target);
+  renderGoalSummary();
   renderAllocation(plan);
   renderExpenseSummary(plan);
   renderAnnualRoute(projection, target);
@@ -672,9 +679,8 @@ function renderGoalSummary() {
   }
   document.getElementById("goalSummary").innerHTML = goals
     .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
-    .slice(0, 5)
     .map((goal) => {
-      const saved = goal.isMainSavingsGoal ? actualSavingsTotal() : Number(goal.savedAmount || 0);
+      const saved = isLongSavingsGoal(goal) ? actualSavingsTotal() : Number(goal.savedAmount || 0);
       const pct = Math.min(100, Math.round((saved / Number(goal.targetAmount || 1)) * 100));
       return `<div class="goal-mini"><div><strong>${escapeHTML(goal.name)}</strong><small>${escapeHTML(goal.category)} · ${budgetModeLabel(goal)} · \u5df2\u6512 ${yuan(saved)}</small></div><strong>${pct}%</strong></div>`;
     })
@@ -684,7 +690,7 @@ function renderGoalSummary() {
 function renderGoals() {
   document.getElementById("goalTable").innerHTML = state.goals
     .map((goal) => {
-      const saved = goal.isMainSavingsGoal ? actualSavingsTotal() : Number(goal.savedAmount || 0);
+      const saved = isLongSavingsGoal(goal) ? actualSavingsTotal() : Number(goal.savedAmount || 0);
       return `<tr><td>${escapeHTML(goal.name)}</td><td>${escapeHTML(goal.category)}<br><small>${budgetModeLabel(goal)}</small></td><td>${yuan(goal.targetAmount)}</td><td>${yuan(saved)}</td><td>${yuan(goal.monthlyReserve)}</td><td>${goal.targetDate || "-"}</td><td><span class="status ${goal.status}">${statusLabel(goal.status)}</span></td><td><div class="row-actions"><button class="mini-button" data-action="edit-goal" data-id="${goal.id}" type="button">\u7f16\u8f91</button><button class="mini-button" data-action="complete-goal" data-id="${goal.id}" type="button">\u5b8c\u6210</button><button class="mini-button" data-action="archive-goal" data-id="${goal.id}" type="button">\u505c\u7528</button><button class="mini-button danger-button" data-action="delete-goal" data-id="${goal.id}" type="button">\u5220\u9664</button></div></td></tr>`;
     })
     .join("");
@@ -768,8 +774,9 @@ function openGoalDialog(goal = {}) {
   openDialog(editingId ? "\u7f16\u8f91\u76ee\u6807" : "\u65b0\u589e\u76ee\u6807", `
     <label>\u540d\u79f0<input name="name" required value="${escapeAttr(goal.name || "")}" /></label>
     <label>\u5206\u7c7b<input name="category" required value="${escapeAttr(goal.category || "\u613f\u671b")}" /></label>
+    <label>\u76ee\u6807\u7c7b\u578b<select name="goalType">${optionList(["short", "long"], goal.goalType || (isLongSavingsGoal(goal) ? "long" : "short"), (value) => (value === "long" ? "\u957f\u671f\u5b58\u6b3e\uff08\u9996\u9875\u4e3b\u76ee\u6807\uff09" : "\u77ed\u671f\u8ba1\u5212"))}</select></label>
     <label>\u76ee\u6807\u91d1\u989d<input name="targetAmount" type="number" min="0" step="50" required value="${goal.targetAmount || 0}" /></label>
-    <label>\u5b9e\u9645\u5df2\u6512<input name="savedAmount" type="number" min="0" step="50" value="${goal.isMainSavingsGoal ? actualSavingsTotal() : goal.savedAmount || 0}" /></label>
+    <label>\u5b9e\u9645\u5df2\u6512<input name="savedAmount" type="number" min="0" step="50" value="${isLongSavingsGoal(goal) ? actualSavingsTotal() : goal.savedAmount || 0}" /></label>
     <label>\u6bcf\u6708\u9884\u7559<input name="monthlyReserve" type="number" min="0" step="50" value="${goal.monthlyReserve || 0}" /></label>
     <label>\u76ee\u6807\u65e5\u671f<input name="targetDate" type="month" value="${goal.targetDate || monthKey(today())}" /></label>
     <label>\u4f18\u5148\u7ea7<select name="priority">${optionList(["high", "medium", "low"], goal.priority || "medium", priorityLabel)}</select></label>
@@ -844,6 +851,7 @@ function saveDialog() {
   const formData = new FormData(document.getElementById("dialogForm"));
   if (dialogType === "goal") {
     const previous = state.goals.find((goal) => goal.id === editingId);
+    const goalType = formData.get("goalType") || "short";
     const goal = {
       id: editingId || uid(),
       name: formData.get("name").trim(),
@@ -854,13 +862,22 @@ function saveDialog() {
       targetDate: formData.get("targetDate"),
       priority: formData.get("priority"),
       status: formData.get("status"),
-      isMainSavingsGoal: previous?.isMainSavingsGoal || isLongSavingsGoal({ name: formData.get("name").trim(), category: formData.get("category").trim() }),
+      goalType,
+      isMainSavingsGoal: goalType === "long",
     };
+    if (goalType === "long") {
+      state.goals.forEach((item) => {
+        if (item.id !== goal.id && isLongSavingsGoal(item)) {
+          item.goalType = "short";
+          item.isMainSavingsGoal = false;
+        }
+      });
+    }
     upsert(state.goals, goal);
-    if (goal.isMainSavingsGoal) {
+    if (goal.goalType === "long") {
       state.profile.age25Target = goal.targetAmount;
-      state.savingRecords[cycleFor().key] = goal.savedAmount;
-      state.profile.currentSavings = goal.savedAmount;
+      const recordedSavings = Object.values(state.savingRecords ?? {}).reduce((sum, value) => sum + Math.max(0, Number(value || 0)), 0);
+      state.profile.currentSavings = Math.max(0, goal.savedAmount - recordedSavings);
     }
     showToast(editingId ? "\u76ee\u6807\u5df2\u66f4\u65b0" : "\u76ee\u6807\u5df2\u65b0\u589e");
   }
@@ -1106,6 +1123,10 @@ function bindEvents() {
     });
   });
   document.getElementById("newGoal").addEventListener("click", () => openGoalDialog());
+  document.getElementById("goToGoals").addEventListener("click", () => {
+    activeSection = "goals";
+    render();
+  });
   document.getElementById("newBill").addEventListener("click", () => openBillDialog());
   document.getElementById("newExpense").addEventListener("click", () => openExpenseDialog());
   document.getElementById("newQuickExpense").addEventListener("click", () => openExpenseDialog());

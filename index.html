@@ -62,7 +62,7 @@
               <p id="spendableHint">先扣长期存款、目标预留、固定大头和账单；吃饭、日常、快乐消费、人情从这里安排。</p>
             </article>
             <article class="metric-card">
-              <span>长期存款进度</span>
+              <span id="targetProgressLabel">长期存款进度</span>
               <strong id="targetProgress">0%</strong>
               <div class="progress"><span id="targetBar"></span></div>
             </article>
@@ -156,6 +156,17 @@
               </div>
             </div>
             <div class="bar-chart" id="monthlyBarChart" aria-label="月度收入支出存款柱状图"></div>
+          </article>
+
+          <article class="panel goal-overview-panel">
+            <div class="panel-head">
+              <div>
+                <h3>我的计划目标</h3>
+                <p>这里只展示目标页里正在进行的目标，新增、编辑、停用或删除后会同步变化。</p>
+              </div>
+              <button class="ghost-button" id="goToGoals" type="button">管理目标</button>
+            </div>
+            <div class="goal-summary" id="goalSummary"></div>
           </article>
 
           <div class="content-grid">
